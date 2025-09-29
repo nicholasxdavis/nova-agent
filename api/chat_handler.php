@@ -16,10 +16,13 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-$apiKey = getenv('OPENROUTER_KEY');
-if (!$apiKey) {
+// Get primary and fallback API keys from environment variables
+$primaryApiKey = getenv('OPENROUTER_KEY');
+$fallbackApiKey = getenv('OPEN_ROUTER2');
+
+if (empty($primaryApiKey)) {
     http_response_code(500);
-    echo json_encode(['error' => 'API key is not configured on the server.']);
+    echo json_encode(['error' => 'Primary API key (OPENROUTER_KEY) is not configured on the server.']);
     exit;
 }
 
@@ -54,7 +57,7 @@ $system_prompt = "You are Nova, a sophisticated and helpful AI assistant. Your p
 // --- Main Logic ---
 
 // STEP 1: Check if the AI wants to use a tool.
-$initial_decision_json = make_llm_request($user_prompt, $system_prompt, $apiKey);
+$initial_decision_json = make_llm_request($user_prompt, $system_prompt, $primaryApiKey, $fallbackApiKey);
 $decoded_decision = json_decode($initial_decision_json, true);
 
 // Check if the decision is a valid tool call
@@ -69,7 +72,7 @@ if (json_last_error() === JSON_ERROR_NONE && isset($decoded_decision['tool'])) {
     $final_prompt = "Original question: '{$user_prompt}'\n\nI have retrieved the following information:\n---\n{$tool_result}\n---\nBased on this information, please provide a direct and helpful answer.";
     
     // Stream the final, synthesized answer to the user
-    stream_ai_response($final_prompt, $system_prompt, $apiKey);
+    stream_ai_response($final_prompt, $system_prompt, $primaryApiKey, $fallbackApiKey);
 
 } else {
     // If no tool is needed, or if the initial response wasn't a valid tool JSON,
@@ -92,95 +95,113 @@ function execute_tool($tool_name, $query) {
 }
 
 /**
- * Makes a single, non-streaming request to the LLM.
- * Used for initial decisions or when streaming is not needed.
+ * Makes a single, non-streaming request to the LLM with fallback key logic.
  */
-function make_llm_request($prompt, $system_prompt, $apiKey) {
-    $ch = curl_init();
-    $body = [
-        'model' => 'mistralai/mistral-small-3.2-24b-instruct:free', // Using a single reliable model
-        'messages' => [
-            ['role' => 'system', 'content' => $system_prompt],
-            ['role' => 'user', 'content' => $prompt]
-        ]
-    ];
+function make_llm_request($prompt, $system_prompt, $primaryApiKey, $fallbackApiKey) {
     
-    curl_setopt_array($ch, [
-        CURLOPT_URL => 'https://openrouter.ai/api/v1/chat/completions',
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($body),
-        CURLOPT_HTTPHEADER => [
-            'Authorization: Bearer ' . $apiKey,
-            'Content-Type: application/json',
-            'HTTP-Referer: https://blacnova.net',
-            'X-Title: Nova AI Agent'
-        ]
-    ]);
+    $perform_request = function($apiKeyToUse) use ($prompt, $system_prompt) {
+        $ch = curl_init();
+        $body = [
+            'model' => 'mistralai/mistral-small-3.2-24b-instruct:free',
+            'messages' => [
+                ['role' => 'system', 'content' => $system_prompt],
+                ['role' => 'user', 'content' => $prompt]
+            ]
+        ];
+        
+        curl_setopt_array($ch, [
+            CURLOPT_URL => 'https://openrouter.ai/api/v1/chat/completions',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($body),
+            CURLOPT_HTTPHEADER => [
+                'Authorization: Bearer ' . $apiKeyToUse,
+                'Content-Type: application/json',
+                'HTTP-Referer: https://blacnova.net',
+                'X-Title: Nova AI Agent'
+            ]
+        ]);
 
-    $response = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+        $response = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
 
-    if ($http_code >= 400) {
-        return "Sorry, I'm currently facing connection issues with the AI service. Please try again in a moment.";
+        if ($http_code === 429) {
+            return ['error' => 'rate_limit', 'response' => null];
+        }
+        if ($http_code >= 400) {
+            return ['error' => 'http_error', 'response' => "Sorry, I'm currently facing connection issues with the AI service."];
+        }
+        
+        $responseData = json_decode($response, true);
+        return ['error' => null, 'response' => $responseData['choices'][0]['message']['content'] ?? ''];
+    };
+    
+    $result = $perform_request($primaryApiKey);
+
+    if ($result['error'] === 'rate_limit' && !empty($fallbackApiKey)) {
+        error_log("Primary API key rate limited. Trying fallback key for non-streaming request.");
+        $result = $perform_request($fallbackApiKey);
     }
 
-    $responseData = json_decode($response, true);
-    return $responseData['choices'][0]['message']['content'] ?? '';
+    return $result['response'];
 }
 
 /**
- * Streams a response from the LLM.
+ * Streams a response from the LLM with fallback key logic.
  */
-function stream_ai_response($prompt, $system_prompt, $apiKey) {
-    header('Content-Type: text/event-stream');
-    header('Cache-Control: no-cache');
-    header('Connection: keep-alive');
-    header('X-Accel-Buffering: no');
+function stream_ai_response($prompt, $system_prompt, $primaryApiKey, $fallbackApiKey) {
+    
+    $perform_stream = function($apiKeyToUse) use ($prompt, $system_prompt) {
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache');
+        header('Connection: keep-alive');
+        header('X-Accel-Buffering: no');
 
-    $body = [
-        'model' => 'mistralai/mistral-small-3.2-24b-instruct:free', // Using a single reliable model
-        'messages' => [
-            ['role' => 'system', 'content' => $system_prompt],
-            ['role' => 'user', 'content' => $prompt]
-        ],
-        'stream' => true
-    ];
+        $body = [
+            'model' => 'mistralai/mistral-small-3.2-24b-instruct:free',
+            'messages' => [
+                ['role' => 'system', 'content' => $system_prompt],
+                ['role' => 'user', 'content' => $prompt]
+            ],
+            'stream' => true
+        ];
 
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL => 'https://openrouter.ai/api/v1/chat/completions',
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($body),
-        CURLOPT_HTTPHEADER => [
-            'Authorization: Bearer ' . $apiKey,
-            'Content-Type: application/json',
-            'HTTP-Referer: https://blacnova.net',
-            'X-Title: Nova AI Agent'
-        ],
-        CURLOPT_WRITEFUNCTION => function($curl, $data) {
-            $lines = explode("\n", trim($data));
-            foreach ($lines as $line) {
-                if (strpos($line, 'data: ') === 0) {
-                    $json_data = substr($line, 6);
-                    if (trim($json_data) === '[DONE]') continue;
-
-                    $chunk = json_decode($json_data, true);
-                    if (isset($chunk['choices'][0]['delta']['content'])) {
-                        echo $chunk['choices'][0]['delta']['content'];
-                        if (ob_get_level() > 0) ob_flush();
-                        flush();
-                    }
-                }
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => 'https://openrouter.ai/api/v1/chat/completions',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($body),
+            CURLOPT_HTTPHEADER => [
+                'Authorization: Bearer ' . $apiKeyToUse,
+                'Content-Type: application/json',
+                'HTTP-Referer: https://blacnova.net',
+                'X-Title: Nova AI Agent'
+            ],
+            CURLOPT_WRITEFUNCTION => function($curl, $data) {
+                echo $data;
+                if (ob_get_level() > 0) ob_flush();
+                flush();
+                return strlen($data);
             }
-            return strlen($data);
-        }
-    ]);
+        ]);
 
-    curl_exec($ch);
-    // No need to check for errors here as we are streaming directly
-    curl_close($ch);
+        curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        // Return true on success, false on rate limit, allowing for a retry
+        return $http_code !== 429;
+    };
+
+    // Try with the primary key first
+    $success = $perform_stream($primaryApiKey);
+
+    // If it was rate limited and a fallback key exists, try again
+    if (!$success && !empty($fallbackApiKey)) {
+        error_log("Primary API key rate limited. Trying fallback key for streaming request.");
+        $perform_stream($fallbackApiKey);
+    }
 }
 ?>
