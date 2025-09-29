@@ -71,65 +71,70 @@ function get_url_contents($url) {
 }
 
 /**
- * A more robust search tool using multiple search providers and caching.
+ * NEW: Search tool using a self-hosted Meilisearch instance.
  */
 function tool_search($query) {
-    $cache_key = 'search_' . md5($query);
+    $cache_key = 'meili_search_' . md5($query);
     $cached_result = get_cache($cache_key);
     if ($cached_result) {
         return $cached_result;
     }
 
-    // Primary search provider: SearXNG
-    $url = "https://searx.be/search?q=" . urlencode($query) . "&format=json";
-    $response_json = get_url_contents($url);
-    
-    if ($response_json !== false) {
-        $data = json_decode($response_json, true);
-        if (!empty($data['results'])) {
-            $output = "#### Search Results for \"{$query}\":\n\n";
-            $count = 0;
-            foreach ($data['results'] as $result) {
-                if ($count >= 3) break; // Limit to top 3 results
-                if (!empty($result['title']) && !empty($result['url']) && !empty($result['content'])) {
-                    $output .= "- **" . $result['title'] . "**\n";
-                    $output .= "  - " . strip_tags($result['content']) . "\n"; // strip html tags
-                    $output .= "  - [Read More](" . $result['url'] . ")\n\n";
-                    $count++;
-                }
-            }
-            if ($count > 0) {
-                set_cache($cache_key, $output, 3600); // Cache for 1 hour
-                return $output;
-            }
-        }
+    $meili_host = 'http://meilisearch-skwkk04kkcw808swoo8wgccw';
+    $meili_key = getenv('MEILI_KEY');
+    // --- NOTE: Assumes your index is named 'web_content'. Change this if needed. ---
+    $index_name = 'web_content';
+
+    if (empty($meili_key)) {
+        return "Sorry, the Meilisearch API key (MEILI_KEY) is not configured on the server.";
     }
 
-    // Fallback search provider: DuckDuckGo
-    $url = "https://api.duckduckgo.com/?q=" . urlencode($query) . "&format=json";
-    $response_json = get_url_contents($url);
+    $url = rtrim($meili_host, '/') . '/indexes/' . $index_name . '/search';
+    $data = json_encode(['q' => $query, 'limit' => 3]);
 
-    if ($response_json !== false) {
-        $data = json_decode($response_json, true);
-        if (!empty($data['RelatedTopics'])) {
-            $output = "#### Search Results for \"{$query}\":\n\n";
-            $count = 0;
-            foreach ($data['RelatedTopics'] as $result) {
-                if ($count >= 3) break;
-                if (!empty($result['Text']) && !empty($result['FirstURL'])) {
-                    $output .= "- **" . $result['Text'] . "**\n";
-                    $output .= "  - [Read More](" . $result['FirstURL'] . ")\n\n";
-                    $count++;
-                }
-            }
-            if ($count > 0) {
-                set_cache($cache_key, $output, 3600); // Cache for 1 hour
-                return $output;
-            }
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_POST, 1);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json',
+        'Authorization: Bearer ' . $meili_key
+    ]);
+
+    $response_json = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code >= 400 || $response_json === false) {
+         error_log("Meilisearch error: HTTP code $http_code. URL: $url");
+         return "Sorry, I'm having trouble connecting to the search service.";
+    }
+
+    $response_data = json_decode($response_json, true);
+
+    if (empty($response_data['hits'])) {
+        return "Sorry, I couldn't find any results in the index for \"{$query}\".";
+    }
+
+    $output = "#### Search Results for \"{$query}\":\n\n";
+    foreach ($response_data['hits'] as $hit) {
+        // Be flexible with common field names from documents
+        $title = htmlspecialchars($hit['title'] ?? $hit['name'] ?? 'No title');
+        $content = htmlspecialchars($hit['content'] ?? $hit['description'] ?? $hit['text'] ?? 'No description available.');
+        $url = $hit['url'] ?? $hit['link'] ?? null;
+
+        $output .= "- **" . $title . "**\n";
+        $output .= "  - " . substr($content, 0, 250) . (strlen($content) > 250 ? "..." : "") . "\n";
+        if ($url) {
+            $output .= "  - [Read More](" . htmlspecialchars($url) . ")\n\n";
+        } else {
+            $output .= "\n";
         }
     }
     
-    return "Sorry, I couldn't find any relevant results for \"{$query}\".";
+    set_cache($cache_key, $output, 3600); // Cache for 1 hour
+    return $output;
 }
 
 
