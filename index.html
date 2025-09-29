@@ -163,6 +163,12 @@
                                         'bg-[var(--card-bg)] border border-white/10': message.role === 'assistant'
                                      }">
                                     <div x-show="!message.type" class="prose prose-invert max-w-none" x-html="renderMarkdown(message.content)"></div>
+                                    
+                                    <div x-show="message.type === 'chart'">
+                                        <canvas :id="'chart-' + index"></canvas>
+                                    </div>
+
+                                    <div x-show="message.type === 'table'" :id="'table-' + index"></div>
 
                                     <div x-show="message.type === 'thinking'">
                                         <div class="space-y-3">
@@ -344,14 +350,9 @@
                 isLoading: false,
 
                 init() {
-                    this.$watch('messages', () => {
-                        this.scrollToBottom();
-                    });
                     mermaid.initialize({ startOnLoad: false, theme: 'dark' });
-
-                    // --- FIX: Configure marked.js for Prism compatibility ---
                     marked.setOptions({
-                        langPrefix: 'language-', // Crucial for Prism's class detection
+                        langPrefix: 'language-',
                         gfm: true,
                     });
                 },
@@ -364,7 +365,7 @@
                     this.userInput = '';
                     this.isLoading = true;
                     
-                    this.messages.push({ role: 'assistant', content: '' }); 
+                    this.messages.push({ role: 'assistant', type: 'thinking' });
                     const assistantMessageIndex = this.messages.length - 1;
 
                     try {
@@ -373,57 +374,94 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ prompt: userMessageContent })
                         });
-
-                        if (!response.body) {
-                            throw new Error("Streaming not supported.");
-                        }
-
-                        const reader = response.body.getReader();
-                        const decoder = new TextDecoder();
                         
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
+                        const contentType = response.headers.get("content-type");
+                        if (contentType && contentType.indexOf("application/json") !== -1) {
+                            // Handle JSON for charts/tables
+                            const data = await response.json();
+                            this.messages.pop(); // Remove thinking indicator
+                            this.handleStructuredData(data);
+                        } else {
+                            // Handle streaming text
+                            this.messages[assistantMessageIndex].type = ''; // Switch from thinking to receiving
+                            this.messages[assistantMessageIndex].content = '';
                             
-                            const chunk = decoder.decode(value, { stream: true });
-                            this.messages[assistantMessageIndex].content += chunk;
-                            this.scrollToBottom();
+                            const reader = response.body.getReader();
+                            const decoder = new TextDecoder();
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+                                const chunk = decoder.decode(value, { stream: true });
+                                this.messages[assistantMessageIndex].content += chunk;
+                                this.scrollToBottom();
+                            }
                         }
-
                     } catch (error) {
-                         this.messages[assistantMessageIndex].content = 'Sorry, there was an error connecting to the AI.';
-                         console.error('Streaming Error:', error);
+                         this.messages.pop(); // Remove thinking indicator on error
+                         this.messages.push({ role: 'assistant', content: 'Sorry, there was an error connecting to the AI.' });
+                         console.error('Send message error:', error);
                     } finally {
                         this.isLoading = false;
                         this.$nextTick(() => {
-                           // Re-render diagrams and highlight code after streaming is complete
                            this.highlightCode();
                            this.renderDiagrams();
+                        });
+                    }
+                },
+
+                handleStructuredData(data) {
+                    if (data.type === 'chart') {
+                        const messageIndex = this.messages.length;
+                        this.messages.push({ role: 'assistant', type: 'chart', content: '', chartData: data });
+                        this.$nextTick(() => this.renderChart(messageIndex, data));
+                    } else if (data.type === 'table') {
+                        const messageIndex = this.messages.length;
+                        this.messages.push({ role: 'assistant', type: 'table', content: '', tableData: data });
+                         this.$nextTick(() => this.renderTable(messageIndex, data));
+                    }
+                },
+                
+                renderChart(index, chartData) {
+                    const ctx = document.getElementById('chart-' + index);
+                    if (ctx) {
+                        new Chart(ctx, {
+                            type: chartData.chart_type,
+                            data: chartData.data,
+                            options: chartData.options
+                        });
+                    }
+                },
+                
+                renderTable(index, tableData) {
+                    const tableEl = document.getElementById('table-' + index);
+                    if(tableEl) {
+                        new Tabulator(tableEl, {
+                            data: tableData.data,
+                            columns: tableData.columns,
+                            layout: "fitColumns",
                         });
                     }
                 },
                 
                 renderMarkdown(content) {
                     const rawHtml = marked.parse(content || '');
-                    // --- FIX: Configure DOMPurify to allow Prism's classes ---
                     return DOMPurify.sanitize(rawHtml, {
-                        ADD_ATTR: ['class'], // Allows any class attribute, including 'language-*' for Prism
-                        ADD_TAGS: ['pre', 'code'] // Ensure these tags are allowed
+                        ADD_ATTR: ['class'],
+                        ADD_TAGS: ['pre', 'code']
                     });
                 },
 
                 highlightCode() {
-                    // --- FIX: Optimized to prevent re-highlighting ---
                     this.$el.querySelectorAll('pre code:not(.prism-highlighted)').forEach((block) => {
                         Prism.highlightElement(block);
-                        block.classList.add('prism-highlighted'); // Add a marker class
+                        block.classList.add('prism-highlighted');
                     });
                 },
                 
                 renderDiagrams() {
                     this.$el.querySelectorAll('.mermaid:not([data-processed="true"])').forEach((el) => {
                         const id = `mermaid-diagram-${Date.now()}-${Math.random()}`;
-                        const svg = mermaid.render(id, el.textContent, (svgCode) => {
+                        mermaid.render(id, el.textContent, (svgCode) => {
                             el.innerHTML = svgCode;
                             el.setAttribute('data-processed', 'true');
                         });
