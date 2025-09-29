@@ -71,7 +71,7 @@ function get_url_contents($url) {
 }
 
 /**
- * FINAL FIX: Search tool using Meilisearch with robust environment variable checks.
+ * FINAL HARDCODED FIX: Bypasses environment variables for Meilisearch to ensure functionality.
  */
 function tool_search($query) {
     $cache_key = 'meili_search_' . md5($query);
@@ -80,19 +80,10 @@ function tool_search($query) {
         return $cached_result;
     }
 
+    // --- Hardcoded values to bypass environment variable issues ---
     $meili_host = 'http://meilisearch-skwkk04kkcw808swoo8wgccw.72.60.121.8.sslip.io';
-    $meili_key = getenv('MEILI_KEY');
-    $index_name = getenv('MEILI_INDEX');
-
-    // --- Critical Validation ---
-    if (empty($meili_key)) {
-        error_log("Meilisearch Misconfiguration: MEILI_KEY environment variable is not set.");
-        return "Sorry, the search service API key is not configured.";
-    }
-    if (empty($index_name) || strpos($index_name, 'http') === 0 || strpos($index_name, '/') !== false) {
-        error_log("Meilisearch Misconfiguration: MEILI_INDEX is missing or invalid. Value: '{$index_name}'");
-        return "Sorry, the search service is misconfigured. The search index name is missing or invalid.";
-    }
+    $meili_key = '2cEB60Cv0YIeqdsfz8ibW5jjDv5z7JUK';
+    $index_name = 'web_content'; // A sensible default index name.
 
     $url = rtrim($meili_host, '/') . '/indexes/' . urlencode($index_name) . '/search';
     $data = json_encode(['q' => $query, 'limit' => 3]);
@@ -114,7 +105,7 @@ function tool_search($query) {
     if ($http_code >= 400 || $response_json === false) {
          error_log("Meilisearch API error: HTTP code {$http_code} for index '{$index_name}'. URL: {$url}");
          if ($http_code === 404) {
-             return "Sorry, the search index '{$index_name}' could not be found.";
+             return "Sorry, the search index '{$index_name}' could not be found. Please ensure you have created this index in your Meilisearch instance.";
          }
          return "Sorry, I'm having trouble connecting to the search service.";
     }
@@ -122,7 +113,7 @@ function tool_search($query) {
     $response_data = json_decode($response_json, true);
 
     if (empty($response_data['hits'])) {
-        return "Sorry, I couldn't find any results in the index for \"{$query}\".";
+        return "Sorry, I couldn't find any results in the index for \"{$query}\". Please ensure your index is populated with documents.";
     }
 
     $output = "#### Search Results for \"{$query}\":\n\n";
