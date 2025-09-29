@@ -71,7 +71,7 @@ function get_url_contents($url) {
 }
 
 /**
- * Search tool using a self-hosted Meilisearch instance with a configurable index name.
+ * FINAL FIX: Search tool using Meilisearch with robust environment variable checks.
  */
 function tool_search($query) {
     $cache_key = 'meili_search_' . md5($query);
@@ -82,14 +82,19 @@ function tool_search($query) {
 
     $meili_host = 'http://meilisearch-skwkk04kkcw808swoo8wgccw.72.60.121.8.sslip.io';
     $meili_key = getenv('MEILI_KEY');
-    // --- CORRECTED: Index name is now configurable via an environment variable ---
-    $index_name = getenv('MEILI_INDEX') ?: 'web_content'; // Defaults to 'web_content' if not set
+    $index_name = getenv('MEILI_INDEX');
 
+    // --- Critical Validation ---
     if (empty($meili_key)) {
-        return "Sorry, the Meilisearch API key (MEILI_KEY) is not configured on the server.";
+        error_log("Meilisearch Misconfiguration: MEILI_KEY environment variable is not set.");
+        return "Sorry, the search service API key is not configured.";
+    }
+    if (empty($index_name) || strpos($index_name, 'http') === 0 || strpos($index_name, '/') !== false) {
+        error_log("Meilisearch Misconfiguration: MEILI_INDEX is missing or invalid. Value: '{$index_name}'");
+        return "Sorry, the search service is misconfigured. The search index name is missing or invalid.";
     }
 
-    $url = rtrim($meili_host, '/') . '/indexes/' . $index_name . '/search';
+    $url = rtrim($meili_host, '/') . '/indexes/' . urlencode($index_name) . '/search';
     $data = json_encode(['q' => $query, 'limit' => 3]);
 
     $ch = curl_init();
@@ -106,13 +111,11 @@ function tool_search($query) {
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($http_code === 404) {
-        error_log("Meilisearch error: HTTP code 404 (Not Found). The index '{$index_name}' may not exist. Please check the MEILI_INDEX environment variable.");
-        return "Sorry, I'm having trouble connecting to the search service. The configured search index might be incorrect.";
-    }
-
     if ($http_code >= 400 || $response_json === false) {
-         error_log("Meilisearch error: HTTP code $http_code. URL: $url");
+         error_log("Meilisearch API error: HTTP code {$http_code} for index '{$index_name}'. URL: {$url}");
+         if ($http_code === 404) {
+             return "Sorry, the search index '{$index_name}' could not be found.";
+         }
          return "Sorry, I'm having trouble connecting to the search service.";
     }
 
