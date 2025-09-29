@@ -2,6 +2,8 @@
 // File: tool_functions.php
 // Path: /api/tool_functions.php
 
+require_once 'cache.php';
+
 /**
  * Main router for handling tool commands.
  */
@@ -52,49 +54,82 @@ function handle_tool_command($prompt) {
  * Helper function to make GET requests with a User-Agent.
  */
 function get_url_contents($url) {
-    $opts = [
-        'http' => [
-            'method' => 'GET',
-            'header' => "User-Agent: Nova-AI-Agent/1.0\r\n"
-        ]
-    ];
-    $context = stream_context_create($opts);
-    return file_get_contents($url, false, $context);
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Nova-AI-Agent/1.0');
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    $data = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code >= 400) {
+        return false;
+    }
+    
+    return $data;
 }
 
 /**
- * NEW: A more robust search tool using a public SearXNG instance.
+ * A more robust search tool using multiple search providers and caching.
  */
 function tool_search($query) {
-    // Using a public SearXNG instance for better results.
+    $cache_key = 'search_' . md5($query);
+    $cached_result = get_cache($cache_key);
+    if ($cached_result) {
+        return $cached_result;
+    }
+
+    // Primary search provider: SearXNG
     $url = "https://searx.be/search?q=" . urlencode($query) . "&format=json";
     $response_json = get_url_contents($url);
-    if ($response_json === false) {
-        return "Sorry, the search service is currently unavailable.";
+    
+    if ($response_json !== false) {
+        $data = json_decode($response_json, true);
+        if (!empty($data['results'])) {
+            $output = "#### Search Results for \"{$query}\":\n\n";
+            $count = 0;
+            foreach ($data['results'] as $result) {
+                if ($count >= 3) break; // Limit to top 3 results
+                if (!empty($result['title']) && !empty($result['url']) && !empty($result['content'])) {
+                    $output .= "- **" . $result['title'] . "**\n";
+                    $output .= "  - " . strip_tags($result['content']) . "\n"; // strip html tags
+                    $output .= "  - [Read More](" . $result['url'] . ")\n\n";
+                    $count++;
+                }
+            }
+            if ($count > 0) {
+                set_cache($cache_key, $output, 3600); // Cache for 1 hour
+                return $output;
+            }
+        }
     }
 
-    $data = json_decode($response_json, true);
-    if (empty($data['results'])) {
-        return "Sorry, I couldn't find any results for \"{$query}\".";
-    }
+    // Fallback search provider: DuckDuckGo
+    $url = "https://api.duckduckgo.com/?q=" . urlencode($query) . "&format=json";
+    $response_json = get_url_contents($url);
 
-    $output = "#### Search Results for \"{$query}\":\n\n";
-    $count = 0;
-    foreach ($data['results'] as $result) {
-        if ($count >= 3) break; // Limit to top 3 results
-        if (!empty($result['title']) && !empty($result['url']) && !empty($result['content'])) {
-            $output .= "- **" . $result['title'] . "**\n";
-            $output .= "  - " . strip_tags($result['content']) . "\n"; // strip html tags
-            $output .= "  - [Read More](" . $result['url'] . ")\n\n";
-            $count++;
+    if ($response_json !== false) {
+        $data = json_decode($response_json, true);
+        if (!empty($data['RelatedTopics'])) {
+            $output = "#### Search Results for \"{$query}\":\n\n";
+            $count = 0;
+            foreach ($data['RelatedTopics'] as $result) {
+                if ($count >= 3) break;
+                if (!empty($result['Text']) && !empty($result['FirstURL'])) {
+                    $output .= "- **" . $result['Text'] . "**\n";
+                    $output .= "  - [Read More](" . $result['FirstURL'] . ")\n\n";
+                    $count++;
+                }
+            }
+            if ($count > 0) {
+                set_cache($cache_key, $output, 3600); // Cache for 1 hour
+                return $output;
+            }
         }
     }
     
-    if ($count == 0) {
-         return "Sorry, I couldn't find any relevant results for \"{$query}\".";
-    }
-
-    return $output;
+    return "Sorry, I couldn't find any relevant results for \"{$query}\".";
 }
 
 
