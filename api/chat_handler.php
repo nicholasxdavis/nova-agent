@@ -55,7 +55,7 @@ foreach ($models as $model) {
     try {
         stream_ai_response($model, $user_prompt, $apiKey);
         $success = true;
-        break; 
+        break;
     } catch (Exception $e) {
         // Log error or handle it, then try the next model
         error_log("Model $model failed: " . $e->getMessage());
@@ -75,11 +75,11 @@ function stream_ai_response($model, $prompt, $apiKey) {
     header('Connection: keep-alive');
     header('X-Accel-Buffering: no'); // Important for Nginx
 
-    $openrouter_url = '[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)';
+    $openrouter_url = 'https://openrouter.ai/api/v1/chat/completions';
     $headers = [
         'Authorization: Bearer ' . $apiKey,
         'Content-Type: application/json',
-        'HTTP-Referer: [https://blacnova.net](https://blacnova.net)', 
+        'HTTP-Referer: https://blacnova.net',
         'X-Title: Nova AI Agent'
     ];
 
@@ -100,23 +100,24 @@ function stream_ai_response($model, $prompt, $apiKey) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, headers);
+    // --- FIX: Added the missing '$' to the $headers variable ---
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($curl, $data) {
         // This function is called for each chunk of data received
         $decoded_lines = explode("\n", trim($data));
-        
+
         foreach ($decoded_lines as $line) {
             if (strpos($line, 'data: ') === 0) {
                 $json_data = substr($line, 6);
                 if (trim($json_data) === '[DONE]') {
                     return strlen($data);
                 }
-                
+
                 $chunk = json_decode($json_data, true);
                 if (isset($chunk['choices'][0]['delta']['content'])) {
                     $content = $chunk['choices'][0]['delta']['content'];
                     echo $content;
-                    
+
                     if (ob_get_level() > 0) {
                         ob_flush();
                     }
@@ -129,13 +130,13 @@ function stream_ai_response($model, $prompt, $apiKey) {
 
     $response = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    
+
     if (curl_errno($ch) || $http_code >= 400) {
         $error_msg = curl_error($ch) ?: "HTTP error code: $http_code. Response: $response";
         curl_close($ch);
         throw new Exception("cURL request failed for model $model. Error: $error_msg");
     }
-    
+
     curl_close($ch);
 }
 ?>
