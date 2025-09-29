@@ -189,8 +189,8 @@
                         <button class="btn btn-circle btn-ghost">
                             <i class="fas fa-paperclip text-xl text-gray-400"></i>
                         </button>
-                        <input type="text" x-model="userInput" @keydown.enter="sendMessage" placeholder="Ask Nova anything..." class="w-full bg-transparent focus:outline-none focus:bg-transparent focus:text-white mx-2 text-lg">
-                        <button @click="sendMessage" class="btn btn-circle bg-[#df722d] hover:bg-[#e88b4b] border-none transition-transform duration-200 hover:scale-110" :disabled="isLoading">
+                        <input type="text" x-model="userInput" @keydown.enter="sendMessage()" placeholder="Ask Nova anything..." class="w-full bg-transparent focus:outline-none focus:bg-transparent focus:text-white mx-2 text-lg">
+                        <button @click="sendMessage()" class="btn btn-circle bg-[#df722d] hover:bg-[#e88b4b] border-none transition-transform duration-200 hover:scale-110" :disabled="isLoading">
                             <i class="fas fa-arrow-up text-xl text-white"></i>
                         </button>
                     </div>
@@ -348,6 +348,7 @@
                 userInput: '',
                 messages: [],
                 isLoading: false,
+                contextData: null, // To hold data between steps
 
                 init() {
                     mermaid.initialize({ startOnLoad: false, theme: 'dark' });
@@ -357,34 +358,53 @@
                     });
                 },
 
-                async sendMessage() {
-                    if (this.isLoading || !this.userInput.trim()) return;
-
-                    const userMessageContent = this.userInput;
-                    this.messages.push({ role: 'user', content: userMessageContent });
+                async sendMessage(promptOverride = null, contextOverride = null) {
+                    const userMessageContent = promptOverride || this.userInput;
+                    if (this.isLoading || !userMessageContent.trim()) return;
+                    
+                    if (!promptOverride) {
+                        this.messages.push({ role: 'user', content: userMessageContent });
+                    }
                     this.userInput = '';
                     this.isLoading = true;
                     
-                    this.messages.push({ role: 'assistant', type: 'thinking' });
+                    // Add thinking indicator if it's not a continuation message
+                    if (!promptOverride) {
+                        this.messages.push({ role: 'assistant', type: 'thinking' });
+                    }
                     const assistantMessageIndex = this.messages.length - 1;
 
                     try {
                         const response = await fetch('/api/chat_handler.php', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ prompt: userMessageContent })
+                            body: JSON.stringify({ 
+                                prompt: userMessageContent,
+                                context: contextOverride || this.contextData 
+                            })
                         });
                         
+                        this.contextData = null; // Clear context after sending
+
                         const contentType = response.headers.get("content-type");
                         if (contentType && contentType.indexOf("application/json") !== -1) {
-                            // Handle JSON for charts/tables
                             const data = await response.json();
                             this.messages.pop(); // Remove thinking indicator
+
+                            // NEW: Handle multi-step continuation
+                            if (data.type === 'continue') {
+                                // Don't add a message, just re-call with the new context
+                                await this.sendMessage(data.original_prompt, data.context);
+                                return; // Stop processing this response
+                            }
+
                             this.handleStructuredData(data);
+
                         } else {
                             // Handle streaming text
-                            this.messages[assistantMessageIndex].type = ''; // Switch from thinking to receiving
-                            this.messages[assistantMessageIndex].content = '';
+                            const assistantMessage = this.messages[assistantMessageIndex];
+                            assistantMessage.type = ''; // Switch from thinking to receiving
+                            assistantMessage.content = '';
                             
                             const reader = response.body.getReader();
                             const decoder = new TextDecoder();
@@ -392,7 +412,7 @@
                                 const { done, value } = await reader.read();
                                 if (done) break;
                                 const chunk = decoder.decode(value, { stream: true });
-                                this.messages[assistantMessageIndex].content += chunk;
+                                assistantMessage.content += chunk;
                                 this.scrollToBottom();
                             }
                         }
