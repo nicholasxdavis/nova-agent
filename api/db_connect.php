@@ -10,8 +10,8 @@ header('Content-Type: application/json');
 
 // --- Database Credentials ---
 // Corrected: Use the Coolify service name as the host
-$host = 'mariadb-database-pkg8c4wgs08oswwggs88wco8'; 
-$dbname = 'nova_ai';
+$host = 'pkg8c4wgs08oswwggs88wco8'; 
+$dbname = 'default';
 $user = 'root';
 $pass = 'HrSHtMgVj5hitcHW5piRfOQMg2KboFZHGmYhHME7eJJEUfAmnRxfQOsx57686pyq';
 $charset = 'utf8mb4';
@@ -52,3 +52,4 @@ try {
     echo json_encode(['error' => 'Failed to create users table: ' . $e->getMessage()]);
     exit();
 }
+
