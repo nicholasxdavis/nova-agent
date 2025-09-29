@@ -26,7 +26,7 @@ function handle_tool_command($prompt) {
             $result = tool_wikipedia($query);
             break;
         case 'search':
-            $result = tool_duckduckgo($query);
+            $result = tool_search($query);
             break;
         case 'arxiv':
             $result = tool_arxiv($query);
@@ -62,8 +62,41 @@ function get_url_contents($url) {
     return file_get_contents($url, false, $context);
 }
 
+/**
+ * NEW: A more robust search tool using a public SearXNG instance.
+ */
+function tool_search($query) {
+    // Using a public SearXNG instance for better results.
+    $url = "https://searx.be/search?q=" . urlencode($query) . "&format=json";
+    $response_json = get_url_contents($url);
+    if ($response_json === false) {
+        return "Sorry, the search service is currently unavailable.";
+    }
 
-// --- Tool Implementations ---
+    $data = json_decode($response_json, true);
+    if (empty($data['results'])) {
+        return "Sorry, I couldn't find any results for \"{$query}\".";
+    }
+
+    $output = "#### Search Results for \"{$query}\":\n\n";
+    $count = 0;
+    foreach ($data['results'] as $result) {
+        if ($count >= 3) break; // Limit to top 3 results
+        if (!empty($result['title']) && !empty($result['url']) && !empty($result['content'])) {
+            $output .= "- **" . $result['title'] . "**\n";
+            $output .= "  - " . strip_tags($result['content']) . "\n"; // strip html tags
+            $output .= "  - [Read More](" . $result['url'] . ")\n\n";
+            $count++;
+        }
+    }
+    
+    if ($count == 0) {
+         return "Sorry, I couldn't find any relevant results for \"{$query}\".";
+    }
+
+    return $output;
+}
+
 
 function tool_wikipedia($query) {
     $url = "https://en.wikipedia.org/w/api.php?action=query&format=json&prop=extracts&exintro=true&explaintext=true&redirects=1&titles=" . urlencode($query);
@@ -81,23 +114,6 @@ function tool_wikipedia($query) {
         return "#### Wikipedia Result for \"{$query}\":\n\n" . $page['extract'] . "\n\n[Read more on Wikipedia](https://en.wikipedia.org/wiki/" . urlencode($query) . ")";
     }
     return "Sorry, I couldn't find a Wikipedia article for \"{$query}\".";
-}
-
-function tool_duckduckgo($query) {
-    $url = "https://api.duckduckgo.com/?q=" . urlencode($query) . "&format=json&no_html=1&skip_disambig=1";
-    $response_json = get_url_contents($url);
-     if ($response_json === false) {
-        return "Sorry, I was unable to connect to the search service.";
-    }
-    $response = json_decode($response_json, true);
-    
-    if (!empty($response['AbstractText'])) {
-        return "#### Quick Search Answer for \"{$query}\":\n\n" . $response['AbstractText'] . "\n\nSource: " . $response['AbstractSource'] . " ([More Details](". $response['AbstractURL'] ."))";
-    }
-    if(!empty($response['RelatedTopics'][0]['Text'])){
-        return "#### Quick Search Answer for \"{$query}\":\n\n" . $response['RelatedTopics'][0]['Text'] . "\n\n[More Details](". $response['RelatedTopics'][0]['FirstURL'] .")";
-    }
-    return "Sorry, I couldn't find a quick answer for \"{$query}\". Try rephrasing your search.";
 }
 
 function tool_arxiv($query) {
@@ -166,7 +182,9 @@ function tool_stackexchange($query) {
     $response_json = get_url_contents($url);
     if ($response_json === false) return "Sorry, I couldn't connect to Stack Exchange.";
     
-    $response = json_decode($response_json, true);
+    // Gzip decoding for StackExchange API
+    $response = json_decode(gzdecode($response_json), true);
+
     if(empty($response['items'])) {
         return "Sorry, I couldn't find any related questions on Stack Overflow for \"{$query}\".";
     }
