@@ -81,7 +81,7 @@ function tool_search($query) {
     }
 
     // --- Hardcoded values to bypass environment variable issues ---
-    $meili_host = 'http://meilisearch-skwkk04kkcw808swoo8wgccw.72.60.121.8.sslip.io';
+    $meili_host = 'http://meilisearch.72.60.121.8.sslip.io';
     $meili_key = '2cEB60Cv0YIeqdsfz8ibW5jjDv5z7JUK';
     $index_name = 'web_content'; // A sensible default index name.
 
