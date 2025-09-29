@@ -2,6 +2,11 @@
 // File: db_connect.php
 // Path: /api/db_connect.php
 
+// --- Environment Setup ---
+// Suppress errors from being displayed to the user in a production environment
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
 // Set headers for CORS and content type
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
@@ -9,7 +14,6 @@ header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header('Content-Type: application/json');
 
 // --- Database Credentials ---
-// Corrected: Use the Coolify service name as the host
 $host = 'pkg8c4wgs08oswwggs88wco8'; 
 $dbname = 'default';
 $user = 'root';
@@ -29,12 +33,14 @@ try {
 } catch (\PDOException $e) {
      // If connection fails, return a JSON error message
      http_response_code(500);
-     echo json_encode(['error' => 'Database connection failed: ' . $e->getMessage()]);
+     // Log the detailed error for the developer
+     error_log('Database connection failed: ' . $e->getMessage());
+     // Return a generic error to the user
+     echo json_encode(['error' => 'Could not connect to the database.']);
      exit();
 }
 
 // --- SQL to Create Users Table ---
-// This ensures the table exists before any operation is attempted.
 $users_table_sql = "
 CREATE TABLE IF NOT EXISTS `users` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -49,6 +55,7 @@ try {
     $pdo->exec($users_table_sql);
 } catch (\PDOException $e) {
     http_response_code(500);
-    echo json_encode(['error' => 'Failed to create users table: ' . $e->getMessage()]);
+    error_log('Failed to create users table: ' . $e->getMessage());
+    echo json_encode(['error' => 'Failed to create users table.']);
     exit();
 }
