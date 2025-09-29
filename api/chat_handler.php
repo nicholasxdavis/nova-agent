@@ -75,17 +75,21 @@ function stream_ai_response($model, $prompt, $apiKey) {
     header('Connection: keep-alive');
     header('X-Accel-Buffering: no'); // Important for Nginx
 
-    $openrouter_url = 'https://openrouter.ai/api/v1/chat/completions';
+    $openrouter_url = '[https://openrouter.ai/api/v1/chat/completions](https://openrouter.ai/api/v1/chat/completions)';
     $headers = [
         'Authorization: Bearer ' . $apiKey,
         'Content-Type: application/json',
-        'HTTP-Referer: https://blacnova.net', 
+        'HTTP-Referer: [https://blacnova.net](https://blacnova.net)', 
         'X-Title: Nova AI Agent'
     ];
+
+    // --- FIX: Add a system prompt to enforce Markdown for code ---
+    $system_prompt = "You are Nova, a helpful AI assistant. You must always format code snippets and blocks using Markdown. Use triple backticks and specify the language (e.g., ```html, ```javascript, ```python).";
 
     $body = [
         'model' => $model,
         'messages' => [
+            ['role' => 'system', 'content' => $system_prompt],
             ['role' => 'user', 'content' => $prompt]
         ],
         'stream' => true // Enable streaming
@@ -96,7 +100,7 @@ function stream_ai_response($model, $prompt, $apiKey) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, headers);
     curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($curl, $data) {
         // This function is called for each chunk of data received
         $decoded_lines = explode("\n", trim($data));
@@ -113,7 +117,6 @@ function stream_ai_response($model, $prompt, $apiKey) {
                     $content = $chunk['choices'][0]['delta']['content'];
                     echo $content;
                     
-                    // --- FIX: Check if an output buffer exists before flushing ---
                     if (ob_get_level() > 0) {
                         ob_flush();
                     }
