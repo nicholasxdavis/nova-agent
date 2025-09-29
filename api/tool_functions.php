@@ -71,7 +71,7 @@ function get_url_contents($url) {
 }
 
 /**
- * NEW: Search tool using a self-hosted Meilisearch instance.
+ * Search tool using a self-hosted Meilisearch instance with the corrected public URL.
  */
 function tool_search($query) {
     $cache_key = 'meili_search_' . md5($query);
@@ -80,7 +80,8 @@ function tool_search($query) {
         return $cached_result;
     }
 
-    $meili_host = 'http://meilisearch-skwkk04kkcw808swoo8wgccw';
+    // --- CORRECTED: Using the full public URL provided for the Meilisearch service ---
+    $meili_host = 'http://meilisearch-skwkk04kkcw808swoo8wgccw.72.60.121.8.sslip.io:7700';
     $meili_key = getenv('MEILI_KEY');
     // --- NOTE: Assumes your index is named 'web_content'. Change this if needed. ---
     $index_name = 'web_content';
