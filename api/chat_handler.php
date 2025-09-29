@@ -3,21 +3,19 @@
 // Path: /api/chat_handler.php
 
 // --- Environment Setup ---
-// Suppress errors from being displayed to the user in a production environment
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 session_start();
 require_once 'tool_functions.php';
 
-// --- Security Check: Ensure user is logged in ---
+// --- Security & Configuration Checks ---
 if (!isset($_SESSION['user_id'])) {
     http_response_code(401);
     echo json_encode(['error' => 'Authentication required.']);
     exit;
 }
 
-// --- Get API Key from Environment Variable ---
 $apiKey = getenv('OPENROUTER_KEY');
 if (!$apiKey) {
     http_response_code(500);
@@ -25,126 +23,82 @@ if (!$apiKey) {
     exit;
 }
 
-// --- Get user prompt from the request ---
+// --- Input Processing ---
 $data = json_decode(file_get_contents('php://input'), true);
 $user_prompt = $data['prompt'] ?? '';
-$context_data = $data['context'] ?? null; // For multi-step operations
-
 if (empty($user_prompt)) {
     http_response_code(400);
     echo json_encode(['error' => 'Prompt is empty.']);
     exit;
 }
 
-// --- System Prompt to empower the AI with Tools and Structured Output ---
+// --- System Prompt ---
 $system_prompt = "You are Nova, a sophisticated and helpful AI assistant. Your primary goal is to provide direct, accurate, and intelligent responses. You have access to a variety of tools, but you should only use them when necessary.
 
 **Core Principles:**
+1.  **Prioritize Direct Answers:** For general knowledge, creative tasks, or coding, answer directly.
+2.  **Intelligent Tool Usage:** Only use tools for recent or real-time information (e.g., weather, news, sports scores).
+3.  **Graceful Fallbacks:** If a tool fails, say 'I'm sorry, I was unable to retrieve that information.'
 
-1.  **Prioritize Direct Answers:** For general knowledge, creative tasks, or coding requests (e.g., 'write me an HTML file for a hello world page'), answer directly from your own knowledge. Do not use tools unless absolutely necessary.
-2.  **Intelligent Tool Usage:** Only use tools for information that is likely to be recent, real-time, or very specific (e.g., weather forecasts, current news, specific stock prices, sports scores).
-3.  **User-Focused Responses:** Your responses should be clear, concise, and helpful. Avoid jargon and technical explanations unless the user asks for them.
-4.  **Context Awareness:** Pay close attention to the context of the conversation. User instructions (e.g., 'don't generate code') should be applied to the current turn, not future turns unless the user specifies otherwise.
-5.  **Graceful Fallbacks:** If a tool fails or you cannot find the information, provide a helpful and honest response, such as 'I'm sorry, I was unable to retrieve that information at this time.'
-
-**Tool Selection (Single JSON Response):**
-
-* If you determine that a tool is necessary, you MUST respond ONLY with a single, clean JSON object specifying the tool and query. Do not add any other text.
-* **Syntax:** `{\"tool\": \"<tool_name>\", \"query\": \"<search_query>\"}`
+**Tool Selection:**
+* If a tool is needed, you MUST respond ONLY with a single, clean JSON object: `{\"tool\": \"<tool_name>\", \"query\": \"<search_query>\"}`.
 
 **Available Tools:**
+* `search`: For general web searches, current events, facts.
+* `wikipedia`: For in-depth factual information.
+* Other tools: `github`, `books`, `stack`, `arxiv`.
 
-* `search`: For general web searches, current events, facts, or any information you don't know.
-* `wikipedia`: For in-depth factual information about topics, people, and places.
-* `github`: **For internal use only.** Use this to find code repositories as a reference for generating code. **NEVER show the list of repositories to the user.** Instead, analyze the results internally and generate the code the user asked for in your final response.
-* `books`: For finding books.
-* `stack`: For programming-related questions.
-* `arxiv`: For scientific papers.
+**Answering based on Tool Results:**
+* When you are given data from a tool, you MUST use that data to answer the user's original question in a natural, conversational way. Do not mention the tool or the data source unless it's relevant. Synthesize the information into a final answer.";
 
-**Visualization Workflow (Two-Step Process):**
+// --- Main Logic ---
 
-* **Step 1: Data Gathering.** If the user asks for a chart or table and you do not have the data, your FIRST response must be a `search` tool call to find the necessary information.
-* **Step 2: Data Formatting.** After the data is found, you will be re-invoked with the data provided in the context. You must then format that data into a JSON response for the requested visualization (Chart.js or Tabulator format).
+// STEP 1: Check if the AI wants to use a tool.
+$initial_decision_json = make_llm_request($user_prompt, $system_prompt, $apiKey);
+$decoded_decision = json_decode($initial_decision_json, true);
 
-**Final Response Formatting:**
+// Check if the decision is a valid tool call
+if (json_last_error() === JSON_ERROR_NONE && isset($decoded_decision['tool'])) {
+    $tool_name = $decoded_decision['tool'];
+    $tool_query = $decoded_decision['query'];
 
-* If no tool or visualization is needed, respond as a helpful AI assistant in standard Markdown format.
-* Always wrap code snippets in Markdown fences (e.g., ```python ... ```).";
+    // Execute the requested tool
+    $tool_result = execute_tool($tool_name, $tool_query);
 
-
-// If context data is provided, it means we are in a multi-step operation (e.g., generating a chart after a search).
-if ($context_data) {
-    // We formulate a new prompt for the AI, giving it the context it needs to finish the job.
-    $user_prompt = "Based on the following data, please fulfill the original request '{$user_prompt}'.\n\nData:\n{$context_data}";
-}
-
-// --- Step 1: Check if a tool needs to be called (Non-streaming) ---
-$tool_check_response = check_for_tool_or_visualization($user_prompt, $system_prompt, $apiKey);
-$decoded_response = json_decode($tool_check_response, true);
-
-if (json_last_error() === JSON_ERROR_NONE && isset($decoded_response['tool'])) {
-    $tool_name = $decoded_response['tool'];
-    $tool_query = $decoded_response['query'];
+    // STEP 2: Formulate a new prompt with the tool's result and get the final answer.
+    $final_prompt = "Original question: '{$user_prompt}'\n\nI have retrieved the following information:\n---\n{$tool_result}\n---\nBased on this information, please provide a direct and helpful answer.";
     
-    // This is the crucial logic for the 2-step chart generation
-    if ($tool_name === 'search' && (str_contains(strtolower($user_prompt), 'chart') || str_contains(strtolower($user_prompt), 'graph') || str_contains(strtolower($user_prompt), 'plot'))) {
-        $search_result = tool_search($tool_query);
-        // Respond with a special type that tells the frontend to re-call with context
-        header('Content-Type: application/json');
-        echo json_encode([
-            'type' => 'continue',
-            'context' => $search_result,
-            'original_prompt' => $data['prompt'] // Send the original user prompt back
-        ]);
-    } else {
-        // A standard tool was requested
-        header('Content-Type: text/event-stream');
-        handle_tool_command("!" . $tool_name . " " . $tool_query);
-    }
-    exit;
-} elseif (json_last_error() === JSON_ERROR_NONE && isset($decoded_response['type'])) {
-    // A visualization (chart/table) was requested
-    header('Content-Type: application/json');
-    echo json_encode($decoded_response);
-    exit;
-}
+    // Stream the final, synthesized answer to the user
+    stream_ai_response($final_prompt, $system_prompt, $apiKey);
 
-// --- Step 2: If no tool, proceed with normal streaming chat ---
-$models = [
-    'deepseek/deepseek-chat-v3.1:free',
-    'qwen/qwen3-coder:free',
-    'moonshotai/kimi-k2:free',
-    'openai/gpt-oss-20b:free',
-    'openai/gpt-oss-120b:free',
-    'x-ai/grok-4-fast:free',
-    'meta-llama/llama-3.3-8b-instruct:free',
-    'google/gemma-3n-e4b-it:free',
-    'mistralai/mistral-small-3.2-24b-instruct:free'
-];
-
-$success = false;
-foreach ($models as $model) {
-    try {
-        stream_ai_response($model, $user_prompt, $system_prompt, $apiKey);
-        $success = true;
-        break;
-    } catch (Exception $e) {
-        error_log("Model $model failed: " . $e->getMessage());
-    }
-}
-
-if (!$success) {
-    http_response_code(503);
-    echo "We're sorry, but all our AI services are currently unavailable. Please try again later.";
+} else {
+    // If no tool is needed, or if the initial response wasn't a valid tool JSON,
+    // treat it as a direct answer and stream it.
+    header('Content-Type: text/event-stream');
+    header('Cache-Control: no-cache');
+    header('Connection: keep-alive');
+    header('X-Accel-Buffering: no');
+    echo $initial_decision_json;
+    flush();
 }
 
 /**
- * Makes a non-streaming call to the AI to see if it wants to use a tool.
+ * Executes a specified tool with a query.
  */
-function check_for_tool_or_visualization($prompt, $system_prompt, $apiKey) {
+function execute_tool($tool_name, $query) {
+    ob_start(); // Start output buffering to capture the tool's echo
+    handle_tool_command("!" . $tool_name . " " . $query);
+    return ob_get_clean(); // Return the captured output
+}
+
+/**
+ * Makes a single, non-streaming request to the LLM.
+ * Used for initial decisions or when streaming is not needed.
+ */
+function make_llm_request($prompt, $system_prompt, $apiKey) {
     $ch = curl_init();
     $body = [
-        'model' => 'deepseek/deepseek-chat-v3.1:free',
+        'model' => 'mistralai/mistral-small-3.2-24b-instruct:free', // Using a single reliable model
         'messages' => [
             ['role' => 'system', 'content' => $system_prompt],
             ['role' => 'user', 'content' => $prompt]
@@ -165,21 +119,28 @@ function check_for_tool_or_visualization($prompt, $system_prompt, $apiKey) {
     ]);
 
     $response = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+
+    if ($http_code >= 400) {
+        return "Sorry, I'm currently facing connection issues with the AI service. Please try again in a moment.";
+    }
 
     $responseData = json_decode($response, true);
     return $responseData['choices'][0]['message']['content'] ?? '';
 }
 
-
-function stream_ai_response($model, $prompt, $system_prompt, $apiKey) {
+/**
+ * Streams a response from the LLM.
+ */
+function stream_ai_response($prompt, $system_prompt, $apiKey) {
     header('Content-Type: text/event-stream');
     header('Cache-Control: no-cache');
     header('Connection: keep-alive');
     header('X-Accel-Buffering: no');
 
     $body = [
-        'model' => $model,
+        'model' => 'mistralai/mistral-small-3.2-24b-instruct:free', // Using a single reliable model
         'messages' => [
             ['role' => 'system', 'content' => $system_prompt],
             ['role' => 'user', 'content' => $prompt]
@@ -218,12 +179,8 @@ function stream_ai_response($model, $prompt, $system_prompt, $apiKey) {
         }
     ]);
 
-    $response = curl_exec($ch);
-    if (curl_errno($ch) || curl_getinfo($ch, CURLINFO_HTTP_CODE) >= 400) {
-        $error_msg = curl_error($ch) ?: "HTTP error: " . curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        throw new Exception($error_msg);
-    }
+    curl_exec($ch);
+    // No need to check for errors here as we are streaming directly
     curl_close($ch);
 }
 ?>
