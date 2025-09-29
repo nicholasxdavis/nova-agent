@@ -71,7 +71,7 @@ function get_url_contents($url) {
 }
 
 /**
- * Search tool using a self-hosted Meilisearch instance with the corrected public URL.
+ * Search tool using a self-hosted Meilisearch instance with a configurable index name.
  */
 function tool_search($query) {
     $cache_key = 'meili_search_' . md5($query);
@@ -80,11 +80,10 @@ function tool_search($query) {
         return $cached_result;
     }
 
-    // --- CORRECTED: Using the public URL without the port, as handled by Coolify's reverse proxy ---
     $meili_host = 'http://meilisearch-skwkk04kkcw808swoo8wgccw.72.60.121.8.sslip.io';
     $meili_key = getenv('MEILI_KEY');
-    // --- NOTE: Assumes your index is named 'web_content'. Change this if needed. ---
-    $index_name = 'web_content';
+    // --- CORRECTED: Index name is now configurable via an environment variable ---
+    $index_name = getenv('MEILI_INDEX') ?: 'web_content'; // Defaults to 'web_content' if not set
 
     if (empty($meili_key)) {
         return "Sorry, the Meilisearch API key (MEILI_KEY) is not configured on the server.";
@@ -107,6 +106,11 @@ function tool_search($query) {
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
+    if ($http_code === 404) {
+        error_log("Meilisearch error: HTTP code 404 (Not Found). The index '{$index_name}' may not exist. Please check the MEILI_INDEX environment variable.");
+        return "Sorry, I'm having trouble connecting to the search service. The configured search index might be incorrect.";
+    }
+
     if ($http_code >= 400 || $response_json === false) {
          error_log("Meilisearch error: HTTP code $http_code. URL: $url");
          return "Sorry, I'm having trouble connecting to the search service.";
@@ -120,7 +124,6 @@ function tool_search($query) {
 
     $output = "#### Search Results for \"{$query}\":\n\n";
     foreach ($response_data['hits'] as $hit) {
-        // Be flexible with common field names from documents
         $title = htmlspecialchars($hit['title'] ?? $hit['name'] ?? 'No title');
         $content = htmlspecialchars($hit['content'] ?? $hit['description'] ?? $hit['text'] ?? 'No description available.');
         $url = $hit['url'] ?? $hit['link'] ?? null;
