@@ -9,8 +9,8 @@ header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header('Content-Type: application/json');
 
 // --- Database Credentials ---
-$host = 'mariadb-database-pkg8c4wgs08oswwggs88wco8';
-$dbname = 'nova_ai'; // A new database for this application
+$host = 'localhost'; // Corrected: Use localhost for a local database
+$dbname = 'nova_ai'; 
 $user = 'root';
 $pass = 'HrSHtMgVj5hitcHW5piRfOQMg2KboFZHGmYhHME7eJJEUfAmnRxfQOsx57686pyq';
 $charset = 'utf8mb4';
@@ -51,4 +51,3 @@ try {
     echo json_encode(['error' => 'Failed to create users table: ' . $e->getMessage()]);
     exit();
 }
-
