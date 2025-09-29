@@ -80,8 +80,8 @@ function tool_search($query) {
         return $cached_result;
     }
 
-    // --- CORRECTED: Using the full public URL provided for the Meilisearch service ---
-    $meili_host = 'http://meilisearch-skwkk04kkcw808swoo8wgccw.72.60.121.8.sslip.io:7700';
+    // --- CORRECTED: Using the public URL without the port, as handled by Coolify's reverse proxy ---
+    $meili_host = 'http://meilisearch-skwkk04kkcw808swoo8wgccw.72.60.121.8.sslip.io';
     $meili_key = getenv('MEILI_KEY');
     // --- NOTE: Assumes your index is named 'web_content'. Change this if needed. ---
     $index_name = 'web_content';
