@@ -44,10 +44,10 @@ $models = [
     'moonshotai/kimi-k2:free',
     'openai/gpt-oss-20b:free',
     'openai/gpt-oss-120b:free',
-x-ai/grok-4-fast:free',
-'meta-llama/llama-3.3-8b-instruct:free',
-'google/gemma-3n-e4b-it:free',
-'mistralai/mistral-small-3.2-24b-instruct:free'
+    'x-ai/grok-4-fast:free', // <<< FIX: Added the missing opening quote here
+    'meta-llama/llama-3.3-8b-instruct:free',
+    'google/gemma-3n-e4b-it:free',
+    'mistralai/mistral-small-3.2-24b-instruct:free'
 ];
 
 $success = false;
