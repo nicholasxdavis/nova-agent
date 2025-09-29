@@ -9,8 +9,9 @@ header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header('Content-Type: application/json');
 
 // --- Database Credentials ---
-$host = 'localhost'; // Corrected: Use localhost for a local database
-$dbname = 'nova_ai'; 
+// Corrected: Use the Coolify service name as the host
+$host = 'mariadb-database-pkg8c4wgs08oswwggs88wco8'; 
+$dbname = 'nova_ai';
 $user = 'root';
 $pass = 'HrSHtMgVj5hitcHW5piRfOQMg2KboFZHGmYhHME7eJJEUfAmnRxfQOsx57686pyq';
 $charset = 'utf8mb4';
