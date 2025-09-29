@@ -6,213 +6,12 @@
     <title>Nova AI - Blacnova Workspace</title>
     <link rel="icon" href="https://www.blacnova.net/img/bn_orange.png" type="image/png">
 
-    <!-- Tailwind CSS & daisyUI -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.1/dist/full.min.css" rel="stylesheet" type="text/css" />
 
-    <!-- Fonts & Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 
-    <!-- JS Libraries -->
-    <script>
-        document.addEventListener('alpine:init', () => {
-            Alpine.data('aiChat', () => ({
-                userInput: '',
-                messages: [],
-                isLoading: false,
-
-                init() {
-                    this.$watch('messages', () => {
-                        this.scrollToBottom();
-                        this.initLottieLoaders();
-                        this.$nextTick(() => {
-                           this.renderAllChartsAndTables();
-                           Prism.highlightAll();
-                        });
-                    });
-                },
-
-                sendMessage() {
-                    if (this.isLoading || !this.userInput.trim()) return;
-
-                    // Add user message
-                    this.messages.push({ role: 'user', content: this.userInput });
-                    const userMessage = this.userInput;
-                    this.userInput = '';
-                    this.isLoading = true;
-
-                    // Simulate AI response flow
-                    this.simulateResponse(userMessage);
-                },
-
-                simulateResponse(originalMessage) {
-                    // 1. Show thinking indicator
-                    setTimeout(() => {
-                        this.messages.push({ role: 'assistant', type: 'thinking' });
-                    }, 500);
-
-                    // 2. Show tool approval
-                    setTimeout(() => {
-                        this.messages.pop(); // Remove thinking indicator
-                        this.messages.push({
-                            role: 'assistant',
-                            type: 'tool_approval',
-                            content: 'To fulfill your request, I need to perform the following actions. Please review and approve.',
-                            tool: {
-                                name: 'Reddit API',
-                                actions: [
-                                    'Access public data from the Reddit API.',
-                                    'Analyze posts from r/artificial, r/singularity, etc.',
-                                    'Generate a chart and data table from the findings.'
-                                ]
-                            }
-                        });
-                    }, 2000);
-                },
-                
-                handleApproval(messageIndex) {
-                    // Remove approval message
-                    this.messages.splice(messageIndex, 1);
-                    
-                    // Add final response
-                     setTimeout(() => {
-                         this.messages.push({
-                            role: 'assistant',
-                            type: 'full_response',
-                            content: this.getMockResponseContent()
-                        });
-                        this.isLoading = false;
-                    }, 500);
-                },
-
-                getMockResponseContent() {
-                    return `
-Approval granted. Here is the analysis of trending AI topics on Reddit:
-
-<h4>Chart: Top AI Subreddit Trends</h4>
-<div class="bg-black/20 p-4 rounded-xl my-4 border border-white/10">
-    <canvas class="reddit-chart"></canvas>
-</div>
-
-<h4>Data Table</h4>
-<p>Below is the interactive data used for the chart.</p>
-<div class="reddit-table my-4 text-sm"></div>
-
-<h4>Code Example</h4>
-<p>I used the following Python snippet with the PRAW library to fetch this data:</p>
-<div class="relative">
-    <pre><code class="language-python">import praw
-
-# Initialize Reddit API
-reddit = praw.Reddit(
-    client_id="YOUR_CLIENT_ID",
-    client_secret="YOUR_CLIENT_SECRET",
-    user_agent="nova-ai-agent/1.0"
-)
-
-subreddit = reddit.subreddit("artificial")
-for submission in subreddit.hot(limit=5):
-    print(f"Title: {submission.title}, Score: {submission.score}")</code></pre>
-    <button class="btn btn-xs btn-ghost copy-code-btn" title="Copy Code"><i class="fas fa-copy"></i></button>
-</div>
-
-<h4>Summary</h4>
-<p>The dominant trend revolves around advancements in open-source Large Language Models (LLMs) and their performance benchmarks against proprietary models. Would you like a deeper analysis of any specific topic?</p>
-`;
-                },
-                
-                retryMessage(index) {
-                    const userMessage = this.messages[index-1];
-                    this.messages = this.messages.slice(0, index-1); // Remove user message and all subsequent AI messages
-                    this.userInput = userMessage.content;
-                    this.sendMessage();
-                },
-
-                copyMessage(content) {
-                    const textToCopy = this.stripHtml(content);
-                    navigator.clipboard.writeText(textToCopy).then(() => {
-                        alert('Copied to clipboard!');
-                    });
-                },
-
-                stripHtml(html){
-                   let doc = new DOMParser().parseFromString(html, 'text/html');
-                   return doc.body.textContent || "";
-                },
-
-                renderMarkdown(content) {
-                    return DOMPurify.sanitize(marked.parse(content));
-                },
-
-                scrollToBottom() {
-                    this.$nextTick(() => {
-                        this.$refs.chatContainer.scrollTop = this.$refs.chatContainer.scrollHeight;
-                    });
-                },
-
-                initLottieLoaders() {
-                    document.querySelectorAll('.lottie-loader').forEach(el => {
-                         if (!el.classList.contains('lottie-initialized')) {
-                            lottie.loadAnimation({
-                                container: el,
-                                renderer: 'svg',
-                                loop: true,
-                                autoplay: true,
-                                path: 'https://lottie.host/a60b3c64-0715-4655-8f55-15a6879e115f/zWTxapQ0fJ.json'
-                            });
-                            el.classList.add('lottie-initialized');
-                         }
-                    });
-                },
-
-                renderAllChartsAndTables() {
-                    // Render Charts
-                    document.querySelectorAll('.reddit-chart').forEach(canvas => {
-                        if (canvas.dataset.rendered) return;
-                        const ctx = canvas.getContext('2d');
-                        new Chart(ctx, {
-                            type: 'bar',
-                            data: {
-                                labels: ['r/artificial', 'r/singularity', 'r/futurology', 'r/LLM'],
-                                datasets: [{
-                                    label: 'Trending Score',
-                                    data: [120, 190, 95, 250],
-                                    backgroundColor: 'rgba(223, 114, 45, 0.4)',
-                                    borderColor: 'rgba(223, 114, 45, 1)',
-                                    borderWidth: 1,
-                                    borderRadius: 8
-                                }]
-                            },
-                            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#9ca3af' } }, x: { grid: { display: false }, ticks: { color: '#9ca3af' } } } }
-                        });
-                        canvas.dataset.rendered = true;
-                    });
-                    
-                    // Render Tables
-                    document.querySelectorAll('.reddit-table').forEach(el => {
-                        if (el.dataset.rendered) return;
-                        const tableData = [
-                            {subreddit: "r/artificial", score: 120, comments: 45},
-                            {subreddit: "r/singularity", score: 190, comments: 88},
-                            {subreddit: "r/futurology", score: 95, comments: 32},
-                            {subreddit: "r/LLM", score: 250, comments: 150},
-                        ];
-                        new Tabulator(el, {
-                            data: tableData,
-                            layout: "fitColumns",
-                            columns:[
-                                {title:"Subreddit", field:"subreddit", width: 200},
-                                {title:"Score", field:"score", hozAlign:"left", sorter:"number"},
-                                {title:"Comments", field:"comments", hozAlign:"left", sorter:"number"},
-                            ],
-                        });
-                         el.dataset.rendered = true;
-                    });
-                }
-            }));
-        });
-    </script>
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@2.3.8/dist/purify.min.js"></script>
@@ -292,13 +91,11 @@ for submission in subreddit.hot(limit=5):
         [x-cloak] { display: none !important; }
     </style>
 </head>
-<body class="flex h-screen w-screen" x-data="aiChat()">
+<body class="flex h-screen w-screen" x-data="app()">
 
     <canvas id="three-canvas"></canvas>
 
-    <!-- Main Layout -->
-    <div class="flex flex-col h-full w-full relative">
-        <!-- Header -->
+    <div x-show="auth.isLoggedIn" class="flex flex-col h-full w-full relative" x-data="aiChat(auth.user)" x-cloak>
         <header class="absolute top-0 left-0 w-full z-20 backdrop-blur-md bg-transparent">
             <div class="container mx-auto px-6">
                 <div class="flex justify-between items-center h-24 border-b border-white/10">
@@ -307,24 +104,27 @@ for submission in subreddit.hot(limit=5):
                     </a>
                     <div class="flex items-center space-x-4">
                         <div class="text-right">
-                            <p class="font-bold text-white">Admin User</p>
-                            <p class="text-xs text-gray-400">admin@blacnova.com</p>
+                            <p class="font-bold text-white" x-text="user.full_name"></p>
+                            <p class="text-xs text-gray-400" x-text="user.email"></p>
                         </div>
-                        <div class="avatar placeholder">
-                            <div class="bg-neutral text-neutral-content rounded-full w-12">
-                                <span class="text-xl">A</span>
+                        <div class="dropdown dropdown-end">
+                            <div tabindex="0" role="button" class="avatar placeholder">
+                                <div class="bg-neutral text-neutral-content rounded-full w-12">
+                                    <span class="text-xl" x-text="user.full_name.charAt(0).toUpperCase()"></span>
+                                </div>
                             </div>
+                            <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                                <li><a @click="$store.auth.logout()">Logout</a></li>
+                            </ul>
                         </div>
                     </div>
                 </div>
             </div>
         </header>
 
-        <!-- Chat Area -->
         <main id="chat-container" x-ref="chatContainer" class="flex-1 pt-32 pb-40 overflow-y-auto custom-scrollbar">
             <div class="container mx-auto px-6 space-y-8">
                 
-                <!-- Initial Welcome Screen -->
                 <div x-show="messages.length === 0" class="text-center py-16">
                     <div class="inline-block p-4 bg-white/5 border border-white/10 rounded-2xl mb-6">
                         <img src="https://www.blacnova.net/img/bn_orange.png" class="h-12 w-12" alt="Nova Logo">
@@ -332,76 +132,35 @@ for submission in subreddit.hot(limit=5):
                     <h1 class="text-5xl font-bold text-gradient font-['Space_Grotesk'] mb-4">How can I help you today?</h1>
                 </div>
 
-                <!-- Dynamic Chat Messages -->
                 <template x-for="(message, index) in messages" :key="index">
                     <div :class="message.role === 'user' ? 'flex justify-end' : 'flex justify-start items-start'">
-                        <!-- AI Avatar -->
                         <div x-show="message.role === 'assistant'" class="avatar mr-4 flex-shrink-0">
                             <div class="w-12 h-12 rounded-full bg-[var(--card-bg)] flex items-center justify-center">
                                <img src="https://www.blacnova.net/img/bn_orange.png" class="h-8 w-8" alt="Nova AI Avatar">
                             </div>
                         </div>
 
-                        <!-- Message Bubble -->
                         <div class="max-w-4xl w-full" :class="{'max-w-2xl': message.role === 'user'}">
                             <div class="p-5 rounded-2xl shadow-lg" 
                                  :class="{
                                     'bg-[var(--primary)] text-white': message.role === 'user',
                                     'bg-[var(--card-bg)] border border-white/10': message.role === 'assistant'
                                  }">
-                                <!-- Simple Text Content -->
-                                <div x-show="!message.type" x-text="message.content" class="prose prose-invert max-w-none"></div>
+                                <div x-show="!message.type" class="prose prose-invert max-w-none" x-html="renderMarkdown(message.content)"></div>
 
-                                <!-- AI Thinking Shimmer -->
                                 <div x-show="message.type === 'thinking'">
                                     <div class="space-y-3">
                                        <div class="h-4 w-3/4 rounded shimmer"></div>
                                        <div class="h-4 w-1/2 rounded shimmer"></div>
                                     </div>
                                 </div>
-                                
-                                <!-- AI Tool Approval -->
-                                <div x-show="message.type === 'tool_approval'" class="group relative">
-                                    <div class="ai-message-content">
-                                        <div class="flex items-center text-sm text-gray-400 border-b border-white/10 pb-3 mb-3">
-                                            <div class="w-5 h-5 mr-2 lottie-loader"></div>
-                                            <span>Using Tool: <strong x-text="message.tool.name"></strong></span>
-                                        </div>
-                                        <p class="mb-4 text-gray-300" x-text="message.content"></p>
-                                        <ul class="list-disc list-inside text-sm my-3 bg-white/5 p-4 rounded-lg border border-white/10">
-                                            <template x-for="action in message.tool.actions">
-                                                <li x-text="action"></li>
-                                            </template>
-                                        </ul>
-                                    </div>
-                                     <div class="flex items-center space-x-2 mt-4">
-                                        <button @click="handleApproval(index)" class="btn btn-sm bg-[#df722d] hover:bg-[#e88b4b] border-none text-white">
-                                           <i class="fas fa-check mr-2"></i>Approve
-                                        </button>
-                                         <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center space-x-1">
-                                            <button @click="copyMessage(message.content)" class="btn btn-xs btn-ghost" title="Copy"><i class="fas fa-copy"></i></button>
-                                            <button @click="retryMessage(index)" class="btn btn-xs btn-ghost" title="Retry"><i class="fas fa-redo"></i></button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- AI Full Response -->
-                                <div x-show="message.type === 'full_response'" class="group relative">
-                                    <div class="prose prose-invert max-w-none ai-message-content" x-html="renderMarkdown(message.content)"></div>
-                                    <div class="absolute -bottom-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center space-x-1">
-                                        <button @click="copyMessage(message.content)" class="btn btn-xs btn-ghost" title="Copy"><i class="fas fa-copy"></i></button>
-                                        <button @click="retryMessage(index)" class="btn btn-xs btn-ghost" title="Retry"><i class="fas fa-redo"></i></button>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
                 </template>
-
             </div>
         </main>
 
-        <!-- Chat Input Bar -->
         <footer class="absolute bottom-0 left-0 w-full z-10 p-6">
             <div class="container mx-auto">
                 <div class="flex items-center bg-black/30 backdrop-blur-xl border border-white/10 rounded-full p-3 shadow-2xl transition-all duration-300 focus-within:border-primary/50">
@@ -409,13 +168,209 @@ for submission in subreddit.hot(limit=5):
                         <i class="fas fa-paperclip text-xl text-gray-400"></i>
                     </button>
                     <input type="text" x-model="userInput" @keydown.enter="sendMessage" placeholder="Ask Nova anything..." class="w-full bg-transparent focus:outline-none focus:bg-transparent focus:text-white mx-2 text-lg">
-                    <button @click="sendMessage" class="btn btn-circle bg-[#df722d] hover:bg-[#e88b4b] border-none transition-transform duration-200 hover:scale-110">
+                    <button @click="sendMessage" class="btn btn-circle bg-[#df722d] hover:bg-[#e88b4b] border-none transition-transform duration-200 hover:scale-110" :disabled="isLoading">
                         <i class="fas fa-arrow-up text-xl text-white"></i>
                     </button>
                 </div>
             </div>
         </footer>
     </div>
+    
+    <div x-show="!auth.isLoggedIn" class="w-full h-full flex items-center justify-center" x-data="authForm()" x-cloak>
+        <div class="w-full max-w-md p-8 space-y-6 bg-card-bg border border-white/10 rounded-2xl shadow-2xl backdrop-blur-lg bg-black/20">
+            <div class="text-center">
+                <img src="https://www.blacnova.net/img/bn_orange.png" class="h-16 w-16 mx-auto mb-4" alt="Nova Logo">
+                <h1 class="text-3xl font-bold text-gradient font-['Space_Grotesk']" x-text="isLogin ? 'Welcome Back' : 'Create an Account'"></h1>
+                <p class="text-gray-400" x-text="isLogin ? 'Sign in to continue to Nova AI' : 'Get started with your AI assistant'"></p>
+            </div>
+            
+            <form @submit.prevent="isLogin ? login() : register()">
+                <div class="space-y-4">
+                    <div class="form-control" x-show="!isLogin">
+                        <label class="label"><span class="label-text text-gray-300">Full Name</span></label>
+                        <input type="text" x-model="fullName" placeholder="John Doe" class="input input-bordered w-full bg-white/5 focus:border-primary">
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text text-gray-300">Email</span></label>
+                        <input type="email" x-model="email" placeholder="john.doe@email.com" class="input input-bordered w-full bg-white/5 focus:border-primary" required>
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text text-gray-300">Password</span></label>
+                        <input type="password" x-model="password" placeholder="••••••••" class="input input-bordered w-full bg-white/5 focus:border-primary" required>
+                    </div>
+                </div>
+
+                <div class="form-control mt-6">
+                    <button type="submit" class="btn bg-[#df722d] hover:bg-[#e88b4b] border-none text-white w-full" :disabled="loading">
+                        <span x-show="loading" class="loading loading-spinner"></span>
+                        <span x-text="isLogin ? 'Login' : 'Create Account'"></span>
+                    </button>
+                </div>
+
+                <div x-show="error" class="text-red-500 text-sm text-center mt-4" x-text="error"></div>
+
+                <div class="text-center mt-6">
+                    <p class="text-sm text-gray-400">
+                        <span x-text="isLogin ? 'Don\'t have an account?' : 'Already have an account?'"></span>
+                        <a href="#" @click.prevent="isLogin = !isLogin" class="text-primary hover:underline">
+                            <span x-text="isLogin ? 'Sign Up' : 'Sign In'"></span>
+                        </a>
+                    </p>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.store('auth', {
+                isLoggedIn: false,
+                user: null,
+
+                async check() {
+                    try {
+                        const response = await fetch('/api/auth/user.php');
+                        const data = await response.json();
+                        if (data.isLoggedIn) {
+                            this.isLoggedIn = true;
+                            this.user = data.user;
+                        }
+                    } catch (error) {
+                        console.error('Session check failed:', error);
+                    }
+                },
+                
+                async login(email, password) {
+                    const response = await fetch('/api/auth/login.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        this.isLoggedIn = true;
+                        this.user = data.user;
+                    }
+                    return data;
+                },
+                
+                async register(fullName, email, password) {
+                    const response = await fetch('/api/auth/register.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ full_name: fullName, email, password })
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        this.isLoggedIn = true;
+                        this.user = data.user;
+                    }
+                    return data;
+                },
+
+                async logout() {
+                    await fetch('/api/auth/logout.php');
+                    this.isLoggedIn = false;
+                    this.user = null;
+                }
+            });
+
+            Alpine.data('app', () => ({
+                auth: Alpine.store('auth'),
+                init() {
+                    this.auth.check();
+                }
+            }));
+            
+            Alpine.data('authForm', () => ({
+                isLogin: true,
+                fullName: '',
+                email: '',
+                password: '',
+                error: '',
+                loading: false,
+                auth: Alpine.store('auth'),
+
+                async login() {
+                    this.loading = true;
+                    this.error = '';
+                    const result = await this.auth.login(this.email, this.password);
+                    if (!result.success) {
+                        this.error = result.message;
+                    }
+                    this.loading = false;
+                },
+
+                async register() {
+                    this.loading = true;
+                    this.error = '';
+                    const result = await this.auth.register(this.fullName, this.email, this.password);
+                    if (!result.success) {
+                        this.error = result.message;
+                    }
+                    this.loading = false;
+                }
+            }));
+
+            Alpine.data('aiChat', (user) => ({
+                user: user,
+                userInput: '',
+                messages: [],
+                isLoading: false,
+
+                init() {
+                    this.$watch('messages', () => {
+                        this.scrollToBottom();
+                    });
+                },
+
+                async sendMessage() {
+                    if (this.isLoading || !this.userInput.trim()) return;
+
+                    const userMessageContent = this.userInput;
+                    this.messages.push({ role: 'user', content: userMessageContent });
+                    this.userInput = '';
+                    this.isLoading = true;
+                    
+                    this.messages.push({ role: 'assistant', type: 'thinking' });
+
+                    try {
+                        const response = await fetch('/api/chat_handler.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ prompt: userMessageContent })
+                        });
+                        
+                        this.messages.pop(); // Remove thinking indicator
+
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            this.messages.push({ role: 'assistant', content: `Error: ${errorData.error || 'Something went wrong.'}` });
+                        } else {
+                            const data = await response.json();
+                            this.messages.push({ role: 'assistant', content: data.reply });
+                        }
+                    } catch (error) {
+                         this.messages.pop(); // Remove thinking indicator
+                         this.messages.push({ role: 'assistant', content: 'Sorry, there was an error connecting to the AI.' });
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+                
+                renderMarkdown(content) {
+                    return DOMPurify.sanitize(marked.parse(content || ''));
+                },
+
+                scrollToBottom() {
+                    this.$nextTick(() => {
+                        this.$refs.chatContainer.scrollTop = this.$refs.chatContainer.scrollHeight;
+                    });
+                },
+            }));
+        });
+    </script>
     
     <script type="module">
         // --- Standalone Scripts ---
@@ -477,4 +432,3 @@ for submission in subreddit.hot(limit=5):
     </script>
 </body>
 </html>
-
